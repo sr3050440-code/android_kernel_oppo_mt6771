@@ -103,21 +103,19 @@ jobs:
           fi
 
       # ============================================================
-      # DIRECTLY FIX ARCH/KCONFIG FOR OPPO HEALTHINFO
+      # CREATE DUMMY OPPO HEALTHINFO KCONFIG
       # ============================================================
-      - name: Fix arch/Kconfig for Oppo Healthinfo
+      - name: Create Dummy Oppo Healthinfo
         run: |
           echo "======================================"
-          echo "FIXING ARCH/KCONFIG FOR HEALTHINFO"
+          echo "CREATING DUMMY OPPO HEALTHINFO"
           echo "======================================"
           
-          if [ -f arch/Kconfig ]; then
-            sed -i '/oppo_healthinfo/s/^/#/' arch/Kconfig
-            echo "Successfully commented out oppo_healthinfo in arch/Kconfig."
-            grep -n "oppo_healthinfo" arch/Kconfig || true
-          else
-            echo "arch/Kconfig not found!"
-          fi
+          mkdir -p drivers/oppo_healthinfo
+          echo "config OPPO_HEALTHINFO" > drivers/oppo_healthinfo/Kconfig
+          echo "    bool \"Oppo Health Info Support\"" >> drivers/oppo_healthinfo/Kconfig
+          echo "    default n" >> drivers/oppo_healthinfo/Kconfig
+          echo "Dummy Kconfig created successfully."
 
       # ============================================================
       # CREATE OUTPUT DIRECTORY
