@@ -103,16 +103,21 @@ jobs:
           fi
 
       # ============================================================
-      # PERMANENTLY REMOVE OPPO HEALTHINFO DEPENDENCY
+      # DIRECTLY FIX ARCH/KCONFIG FOR OPPO HEALTHINFO
       # ============================================================
-      - name: Permanently Remove Oppo Healthinfo Dependency
+      - name: Fix arch/Kconfig for Oppo Healthinfo
         run: |
           echo "======================================"
-          echo "REMOVING OPPO HEALTHINFO DEPENDENCY"
+          echo "FIXING ARCH/KCONFIG FOR HEALTHINFO"
           echo "======================================"
           
-          find . -name "Kconfig*" -o -name "*.mk" | xargs sed -i '/oppo_healthinfo/d' || true
-          echo "Dependency removed successfully."
+          if [ -f arch/Kconfig ]; then
+            sed -i '/oppo_healthinfo/s/^/#/' arch/Kconfig
+            echo "Successfully commented out oppo_healthinfo in arch/Kconfig."
+            grep -n "oppo_healthinfo" arch/Kconfig || true
+          else
+            echo "arch/Kconfig not found!"
+          fi
 
       # ============================================================
       # CREATE OUTPUT DIRECTORY
