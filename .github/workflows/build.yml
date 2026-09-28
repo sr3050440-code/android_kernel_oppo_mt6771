@@ -44,28 +44,26 @@ jobs:
             binutils-aarch64-linux-gnu
 
       # ============================================================
-      # ULTIMATE KCONFIG FIX (PERMANENT SOLUTION)
+      # DIRECT MANUAL PATCH FOR MM/KCONFIG (PERMANENT FIX)
       # ============================================================
-      - name: Permanently Erase Missing Oplus/Oppo/Os_track Dependencies
+      - name: Patch mm/Kconfig Manually
         run: |
           echo "======================================"
-          echo "CLEANING UP BROKEN KCONFIG INCLUDES"
+          echo "PATCHING mm/KCONFIG TO REMOVE os_track"
           echo "======================================"
           
-          # Remove any include or source lines pointing to missing os_track or oppo configs across all Kconfig files
-          find . -name "Kconfig*" | while read -r kfile; do
-            sed -i '/os_track/d' "$kfile"
-            sed -i '/oppo_healthinfo/d' "$kfile"
-            sed -i '/foreground_io_opt/d' "$kfile"
-          done
-
-          # Specifically fix mm/Kconfig if it contains broken references
           if [ -f "mm/Kconfig" ]; then
-            sed -i '/os_track/d' "mm/Kconfig"
-            sed -i '/oppo/d' "mm/Kconfig"
+            # Delete any lines containing os_track inside mm/Kconfig
+            sed -i '/os_track/d' mm/Kconfig
+            echo "Successfully removed os_track from mm/Kconfig"
+          else
+            echo "mm/Kconfig not found!"
           fi
 
-          echo "Broken dependencies successfully wiped out!"
+          # Also check and clean all other Kconfig files just in case
+          find . -name "Kconfig*" | while read -r kfile; do
+            sed -i '/os_track/d' "$kfile" || true
+          done
 
       # ============================================================
       # CREATE OUTPUT DIRECTORY
