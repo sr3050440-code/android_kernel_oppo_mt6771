@@ -58,6 +58,7 @@ jobs:
           sed -i '/oppo_healthinfo/d' mm/Kconfig || true
           sed -i '/foreground_io_opt/d' block/Kconfig || true
           sed -i '/oppo_virtual_sensor/d' drivers/misc/mediatek/sensors-1.0/Kconfig || true
+          sed -i '/ufs/d' drivers/scsi/Kconfig || true
           
           find . -name "Kconfig*" -exec sed -i '/oppo_healthinfo/d' {} \; || true
           find . -name "Kconfig*" -exec sed -i '/os_track/d' {} \; || true
