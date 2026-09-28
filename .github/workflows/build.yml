@@ -9,7 +9,7 @@ permissions:
 jobs:
   build:
     name: Build MT6771 Kernel
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-20.04
 
     steps:
 
@@ -22,23 +22,25 @@ jobs:
           fetch-depth: 1
 
       # ============================================================
-      # SHOW SOURCE
+      # SOURCE INFORMATION
       # ============================================================
       - name: Show Source Information
         shell: bash
         run: |
-          echo "======================================"
+          set -e
+
+          echo "=============================================="
           echo " Repository : $GITHUB_REPOSITORY"
           echo " Ref        : $GITHUB_REF"
           echo " Commit     : $GITHUB_SHA"
-          echo "======================================"
+          echo "=============================================="
 
           echo
           echo "Kernel version:"
           grep -E '^(VERSION|PATCHLEVEL|SUBLEVEL|EXTRAVERSION)' Makefile || true
 
       # ============================================================
-      # INSTALL DEPENDENCIES
+      # INSTALL HOST DEPENDENCIES
       # ============================================================
       - name: Install Dependencies
         shell: bash
@@ -62,6 +64,7 @@ jobs:
             libncurses-dev \
             libssl-dev \
             make \
+            perl \
             python3 \
             rsync \
             unzip \
@@ -70,82 +73,189 @@ jobs:
             zip
 
       # ============================================================
-      # CHECK REQUIRED FILES
+      # VERIFY KERNEL TREE
       # ============================================================
-      - name: Check Kernel Tree
+      - name: Verify Kernel Tree
         shell: bash
         run: |
           set -e
 
-          echo "Checking kernel source..."
+          echo "Checking kernel tree..."
 
           test -f Makefile
           test -d arch
           test -d drivers
           test -d include
           test -d scripts
-
-          echo "Kernel source OK."
-
-          echo
-          echo "Checking ARM64 architecture..."
           test -d arch/arm64
 
+          echo "Kernel tree OK."
+
           echo
-          echo "Checking defconfig..."
+          echo "Checking OPPO MT6771 defconfig..."
+
           test -f arch/arm64/configs/oppo6771_defconfig
 
-          echo
-          echo "oppo6771_defconfig FOUND."
+          echo "FOUND:"
+          ls -lh arch/arm64/configs/oppo6771_defconfig
 
       # ============================================================
-      # SETUP ARM64 GCC TOOLCHAIN
+      # FIX MISSING OPPO FOREGROUND IO FEATURE
+      #
+      # The source tree references:
+      #
+      # block/oppo_foreground_io_opt/Kconfig
+      # block/oppo_foreground_io_opt/
+      #
+      # but the directory is absent.
+      #
+      # Do NOT create a fake empty directory.
+      # Disable only these dangling references for this build.
       # ============================================================
-      - name: Setup ARM64 Toolchain
+      - name: Fix Missing Foreground IO Reference
+        shell: bash
+        run: |
+          set -e
+
+          echo "Checking foreground IO feature..."
+
+          if [ ! -d "block/oppo_foreground_io_opt" ]; then
+
+            echo
+            echo "WARNING:"
+            echo "block/oppo_foreground_io_opt is missing."
+            echo "Removing only the dangling build references."
+
+            # ------------------------------------------------------
+            # Kconfig reference
+            # ------------------------------------------------------
+            if grep -q 'source block/oppo_foreground_io_opt/Kconfig' block/Kconfig; then
+
+              sed -i \
+                '/source block\/oppo_foreground_io_opt\/Kconfig/s/^/# DISABLED: missing source: /' \
+                block/Kconfig
+
+            fi
+
+            # ------------------------------------------------------
+            # Makefile reference
+            # ------------------------------------------------------
+            if grep -q 'oppo_foreground_io_opt/' block/Makefile; then
+
+              sed -i \
+                '/obj-\$(CONFIG_OPPO_FG_IO_OPT).*oppo_foreground_io_opt\//s/^/# DISABLED: missing source: /' \
+                block/Makefile
+
+            fi
+
+            # ------------------------------------------------------
+            # Disable the missing configuration symbol in the
+            # device defconfig.
+            # ------------------------------------------------------
+            if grep -q '^CONFIG_OPPO_FG_IO_OPT=' \
+                arch/arm64/configs/oppo6771_defconfig; then
+
+              sed -i \
+                's/^CONFIG_OPPO_FG_IO_OPT=.*/# CONFIG_OPPO_FG_IO_OPT is not set/' \
+                arch/arm64/configs/oppo6771_defconfig
+
+            fi
+
+          else
+
+            echo "Foreground IO directory exists."
+            echo "No source patch required."
+
+          fi
+
+          echo
+          echo "===== Kconfig reference check ====="
+
+          grep -n \
+            'oppo_foreground_io_opt' \
+            block/Kconfig \
+            block/Makefile \
+            2>/dev/null || true
+
+      # ============================================================
+      # SETUP AARCH64 GCC 4.9
+      # ============================================================
+      - name: Setup AArch64 GCC 4.9
         shell: bash
         run: |
           set -e
 
           mkdir -p "$HOME/toolchains"
 
-          echo "Cloning AArch64 GCC toolchain..."
+          if [ ! -d "$HOME/toolchains/aarch64/.git" ]; then
 
-          git clone --depth=1 \
-            https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9.git \
-            "$HOME/toolchains/aarch64"
+            git clone \
+              --depth=1 \
+              https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9.git \
+              "$HOME/toolchains/aarch64"
 
-          echo "Cloning ARM 32-bit GCC toolchain..."
+          fi
 
-          git clone --depth=1 \
-            https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9.git \
-            "$HOME/toolchains/arm"
+          test -x \
+            "$HOME/toolchains/aarch64/bin/aarch64-linux-android-gcc"
 
           echo "$HOME/toolchains/aarch64/bin" >> "$GITHUB_PATH"
-          echo "$HOME/toolchains/arm/bin" >> "$GITHUB_PATH"
 
           echo
           echo "AArch64 compiler:"
-          "$HOME/toolchains/aarch64/bin/aarch64-linux-android-gcc" --version | head -n 1
+          "$HOME/toolchains/aarch64/bin/aarch64-linux-android-gcc" \
+            --version | head -n 1
+
+      # ============================================================
+      # SETUP ARM 32-BIT GCC 4.9
+      # ============================================================
+      - name: Setup ARM GCC 4.9
+        shell: bash
+        run: |
+          set -e
+
+          mkdir -p "$HOME/toolchains"
+
+          if [ ! -d "$HOME/toolchains/arm/.git" ]; then
+
+            git clone \
+              --depth=1 \
+              https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9.git \
+              "$HOME/toolchains/arm"
+
+          fi
+
+          test -x \
+            "$HOME/toolchains/arm/bin/arm-linux-androideabi-gcc"
+
+          echo "$HOME/toolchains/arm/bin" >> "$GITHUB_PATH"
 
           echo
           echo "ARM compiler:"
-          "$HOME/toolchains/arm/bin/arm-linux-androideabi-gcc" --version | head -n 1
+          "$HOME/toolchains/arm/bin/arm-linux-androideabi-gcc" \
+            --version | head -n 1
 
       # ============================================================
-      # CLEAN BUILD DIRECTORY
+      # PREPARE BUILD
       # ============================================================
-      - name: Prepare Build Directory
+      - name: Prepare Build
         shell: bash
         run: |
           set -e
 
           rm -rf out
+
           mkdir -p out
 
-          echo "Output directory prepared."
+          echo "Build directory:"
+          pwd
+
+          echo
+          echo "Output directory:"
+          ls -ld out
 
       # ============================================================
-      # CONFIGURE KERNEL
+      # CONFIGURE
       # ============================================================
       - name: Configure Kernel
         shell: bash
@@ -156,13 +266,26 @@ jobs:
           export SUBARCH=arm64
 
           export CROSS_COMPILE="$HOME/toolchains/aarch64/bin/aarch64-linux-android-"
+
           export CROSS_COMPILE_ARM32="$HOME/toolchains/arm/bin/arm-linux-androideabi-"
 
-          echo "======================================"
-          echo "Kernel configuration"
-          echo "DEFCONFIG: oppo6771_defconfig"
-          echo "ARCH:      arm64"
-          echo "======================================"
+          echo
+          echo "=============================================="
+          echo " Configuring OPPO MT6771 Kernel"
+          echo "=============================================="
+          echo
+          echo "ARCH:"
+          echo "$ARCH"
+          echo
+          echo "CROSS_COMPILE:"
+          echo "$CROSS_COMPILE"
+          echo
+          echo "CROSS_COMPILE_ARM32:"
+          echo "$CROSS_COMPILE_ARM32"
+          echo
+          echo "DEFCONFIG:"
+          echo "oppo6771_defconfig"
+          echo
 
           make \
             O=out \
@@ -171,33 +294,49 @@ jobs:
             CROSS_COMPILE_ARM32="$CROSS_COMPILE_ARM32" \
             oppo6771_defconfig
 
-          test -f out/.config
+          test -s out/.config
 
           echo
-          echo "Kernel configuration generated successfully."
+          echo "=============================================="
+          echo " Kernel configuration successful"
+          echo "=============================================="
 
       # ============================================================
-      # DISPLAY IMPORTANT CONFIG
+      # VERIFY CONFIG
       # ============================================================
-      - name: Check Final Configuration
+      - name: Verify Configuration
         shell: bash
         run: |
           set -e
 
-          echo "Checking generated .config..."
-
           test -s out/.config
 
+          echo "CONFIG SIZE:"
+          wc -l out/.config
+
           echo
-          echo "Architecture:"
-          grep '^CONFIG_ARCH_' out/.config | head -20 || true
+          echo "MT6771:"
+          grep -E \
+            '^CONFIG_MACH_MT6771=' \
+            out/.config || true
+
+          echo
+          echo "MTK PLATFORM:"
+          grep -E \
+            '^CONFIG_MTK_PLATFORM=' \
+            out/.config || true
 
           echo
           echo "ARM64:"
-          grep '^CONFIG_ARM64=' out/.config || true
+          grep -E \
+            '^CONFIG_ARM64=' \
+            out/.config || true
 
           echo
-          echo "Build configuration is ready."
+          echo "Foreground IO:"
+          grep -E \
+            '^CONFIG_OPPO_FG_IO_OPT=' \
+            out/.config || true
 
       # ============================================================
       # BUILD KERNEL
@@ -211,12 +350,17 @@ jobs:
           export SUBARCH=arm64
 
           export CROSS_COMPILE="$HOME/toolchains/aarch64/bin/aarch64-linux-android-"
+
           export CROSS_COMPILE_ARM32="$HOME/toolchains/arm/bin/arm-linux-androideabi-"
 
-          echo "======================================"
-          echo "Starting kernel build"
-          echo "CPU cores: $(nproc)"
-          echo "======================================"
+          echo
+          echo "=============================================="
+          echo " Building OPPO MT6771 Kernel"
+          echo "=============================================="
+          echo
+          echo "CPU:"
+          nproc
+          echo
 
           make \
             -j"$(nproc)" \
@@ -226,16 +370,17 @@ jobs:
             CROSS_COMPILE_ARM32="$CROSS_COMPILE_ARM32"
 
       # ============================================================
-      # FIND KERNEL IMAGE
+      # CHECK IMAGE
       # ============================================================
-      - name: Find Kernel Image
+      - name: Check Kernel Image
         shell: bash
         run: |
           set -e
 
-          echo "======================================"
-          echo "Kernel output files"
-          echo "======================================"
+          echo
+          echo "=============================================="
+          echo " Kernel Images"
+          echo "=============================================="
 
           find out/arch/arm64/boot \
             -maxdepth 2 \
@@ -243,13 +388,10 @@ jobs:
             -printf '%p\n' \
             2>/dev/null || true
 
-          echo
-          echo "Checking kernel image..."
-
           FOUND=0
 
-          if [ -f out/arch/arm64/boot/Image.gz-dtb ]; then
-            echo "FOUND: Image.gz-dtb"
+          if [ -f out/arch/arm64/boot/Image ]; then
+            echo "FOUND: Image"
             FOUND=1
           fi
 
@@ -258,18 +400,19 @@ jobs:
             FOUND=1
           fi
 
-          if [ -f out/arch/arm64/boot/Image ]; then
-            echo "FOUND: Image"
+          if [ -f out/arch/arm64/boot/Image.gz-dtb ]; then
+            echo "FOUND: Image.gz-dtb"
             FOUND=1
           fi
 
           if [ "$FOUND" -eq 0 ]; then
-            echo "::error::No kernel Image was generated."
+            echo
+            echo "::error::No ARM64 kernel image was generated."
             exit 1
           fi
 
       # ============================================================
-      # COLLECT BUILD OUTPUT
+      # COLLECT OUTPUT
       # ============================================================
       - name: Collect Kernel Output
         shell: bash
@@ -279,31 +422,52 @@ jobs:
           rm -rf release
           mkdir -p release
 
+          # --------------------------------------------------------
           # Kernel images
+          # --------------------------------------------------------
+
           if [ -f out/arch/arm64/boot/Image ]; then
-            cp out/arch/arm64/boot/Image release/
+            cp \
+              out/arch/arm64/boot/Image \
+              release/Image
           fi
 
           if [ -f out/arch/arm64/boot/Image.gz ]; then
-            cp out/arch/arm64/boot/Image.gz release/
+            cp \
+              out/arch/arm64/boot/Image.gz \
+              release/Image.gz
           fi
 
           if [ -f out/arch/arm64/boot/Image.gz-dtb ]; then
-            cp out/arch/arm64/boot/Image.gz-dtb release/
+            cp \
+              out/arch/arm64/boot/Image.gz-dtb \
+              release/Image.gz-dtb
           fi
 
-          # DTB
+          # --------------------------------------------------------
+          # DTBs
+          # --------------------------------------------------------
+
           if [ -d out/arch/arm64/boot/dts ]; then
+
             mkdir -p release/dts
 
             find out/arch/arm64/boot/dts \
               -type f \
-              \( -name '*.dtb' -o -name '*.dtbo' \) \
+              \( \
+                -name '*.dtb' \
+                -o \
+                -name '*.dtbo' \
+              \) \
               -exec cp {} release/dts/ \; \
               2>/dev/null || true
+
           fi
 
-          # Modules
+          # --------------------------------------------------------
+          # Kernel modules
+          # --------------------------------------------------------
+
           mkdir -p release/modules
 
           find out \
@@ -312,25 +476,17 @@ jobs:
             -exec cp {} release/modules/ \; \
             2>/dev/null || true
 
-          # Configuration
-          cp out/.config release/kernel.config
+          # --------------------------------------------------------
+          # Kernel config
+          # --------------------------------------------------------
 
-          echo "======================================"
-          echo "Release files"
-          echo "======================================"
+          cp \
+            out/.config \
+            release/kernel.config
 
-          find release \
-            -type f \
-            -printf '%p\n' \
-            | sort
-
-      # ============================================================
-      # SAVE BUILD LOG INFORMATION
-      # ============================================================
-      - name: Build Information
-        shell: bash
-        run: |
-          set -e
+          # --------------------------------------------------------
+          # Build information
+          # --------------------------------------------------------
 
           {
             echo "Repository: $GITHUB_REPOSITORY"
@@ -339,17 +495,24 @@ jobs:
             echo "Defconfig: oppo6771_defconfig"
             echo "Architecture: arm64"
             echo
-            echo "Kernel:"
-            grep -E '^(VERSION|PATCHLEVEL|SUBLEVEL|EXTRAVERSION)' Makefile || true
-            echo
-            echo "Compiler:"
-            "$HOME/toolchains/aarch64/bin/aarch64-linux-android-gcc" --version | head -n 1
+            echo "Kernel version:"
+            grep -E \
+              '^(VERSION|PATCHLEVEL|SUBLEVEL|EXTRAVERSION)' \
+              Makefile || true
           } > release/build-info.txt
 
-          cat release/build-info.txt
+          echo
+          echo "=============================================="
+          echo " Release files"
+          echo "=============================================="
+
+          find release \
+            -type f \
+            -printf '%p\n' \
+            | sort
 
       # ============================================================
-      # UPLOAD ARTIFACT
+      # UPLOAD
       # ============================================================
       - name: Upload Kernel Artifact
         uses: actions/upload-artifact@v4
