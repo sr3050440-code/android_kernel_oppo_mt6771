@@ -111,16 +111,17 @@ jobs:
           echo "CREATING DUMMY MM OPPO HEALTHINFO"
           echo "======================================"
           
+          rm -rf mm/oppo_healthinfo drivers/oppo_healthinfo
+          
           mkdir -p mm/oppo_healthinfo
           echo "config OPPO_HEALTHINFO" > mm/oppo_healthinfo/Kconfig
           echo "    bool \"Oppo Health Info Support\"" >> mm/oppo_healthinfo/Kconfig
           echo "    default n" >> mm/oppo_healthinfo/Kconfig
           
-          # Also keep drivers dummy just in case
           mkdir -p drivers/oppo_healthinfo
           cp mm/oppo_healthinfo/Kconfig drivers/oppo_healthinfo/Kconfig
           
-          echo "Dummy Kconfig files created successfully in mm/ and drivers/."
+          echo "Dummy Kconfig files created successfully."
 
       # ============================================================
       # CREATE OUTPUT DIRECTORY
