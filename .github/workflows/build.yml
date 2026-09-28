@@ -103,18 +103,16 @@ jobs:
           fi
 
       # ============================================================
-      # CREATE DUMMY OPPO HEALTHINFO KCONFIG
+      # PERMANENTLY REMOVE OPPO HEALTHINFO DEPENDENCY
       # ============================================================
-      - name: Create Dummy Oppo Healthinfo
+      - name: Permanently Remove Oppo Healthinfo Dependency
         run: |
           echo "======================================"
-          echo "CREATING DUMMY OPPO HEALTHINFO FOLDER"
+          echo "REMOVING OPPO HEALTHINFO DEPENDENCY"
           echo "======================================"
           
-          mkdir -p drivers/oppo_healthinfo
-          echo "config OPPO_HEALTHINFO" > drivers/oppo_healthinfo/Kconfig
-          echo "    bool \"Oppo Health Info Support\"" >> drivers/oppo_healthinfo/Kconfig
-          echo "    default n" >> drivers/oppo_healthinfo/Kconfig
+          find . -name "Kconfig*" -o -name "*.mk" | xargs sed -i '/oppo_healthinfo/d' || true
+          echo "Dependency removed successfully."
 
       # ============================================================
       # CREATE OUTPUT DIRECTORY
