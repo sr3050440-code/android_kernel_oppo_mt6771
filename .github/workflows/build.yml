@@ -1,383 +1,114 @@
-name: OPPO MT6771 - Auto Build
+name: Build Kernel
 
 on:
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
 
     steps:
+      # ============================================================
+      # 1. CHECKOUT CODE
+      # ============================================================
+      - name: Checkout Repository
+        uses: actions/checkout@v3
 
       # ============================================================
-      # 1. CHECKOUT
+      # 2. SETUP ENVIRONMENT & DEPENDENCIES
       # ============================================================
-      - name: Checkout Kernel Source
-        uses: actions/checkout@v4
-        with:
-          ref: oppo/mt6771_r_11
-          fetch-depth: 1
-          submodules: recursive
-
-      # ============================================================
-      # 2. DEPENDENCIES
-      # ============================================================
-      - name: Install Dependencies
+      - name: Set Up Dependencies
         run: |
           sudo apt-get update
-
-          sudo apt-get install -y \
-            bc \
-            bison \
-            flex \
-            libssl-dev \
-            libelf-dev \
-            libncurses-dev \
-            gcc \
-            g++ \
-            make \
-            git \
-            cpio \
-            rsync \
-            unzip \
-            zip \
-            gzip \
-            xz-utils \
-            device-tree-compiler \
-            python3 \
-            python3-pip \
-            perl \
-            openssl \
-            file \
-            pahole \
-            gcc-aarch64-linux-gnu \
-            binutils-aarch64-linux-gnu
+          sudo apt-get install -y build-essential bc bison flex libssl-dev libncurses5-dev \
+            libncursesw5-dev libelf-dev clang lld llvm libpython3-dev python3-pip zip unzip curl
 
       # ============================================================
-      # 3. SOURCE INFORMATION
+      # 3. SET UP TOOLCHAIN (CLANG / GCC)
       # ============================================================
-      - name: Kernel Information
+      - name: Download & Set Up Toolchain
         run: |
-          echo "============================================"
-          echo "OPPO MT6771 KERNEL"
-          echo "============================================"
-
-          echo ""
-          echo "Branch:"
-          git branch --show-current || true
-
-          echo ""
-          echo "Commit:"
-          git log -1 --oneline
-
-          echo ""
-          echo "Kernel version:"
-          make kernelversion || true
+          mkdir -p toolchain
+          cd toolchain
+          # Azure Proton Clang download
+          git clone --depth=1 https://github.com/kdrag0n/proton-clang.git clang
+          echo "$GITHUB_WORKSPACE/toolchain/clang/bin" >> $GITHUB_PATH
 
       # ============================================================
-      # 4. SHOW DEFCONFIGS
+      # 4. DOWNLOAD KERNEL SOURCE
       # ============================================================
-      - name: Detect Defconfig
-        shell: bash
+      - name: Download Kernel Source
         run: |
-          set -u
-
-          echo "Available MT6771/OPPO configs:"
-          echo
-
-          find arch/arm64/configs \
-            -maxdepth 1 \
-            -type f \
-            -printf '%f\n' \
-            | grep -Ei 'mt6771|oppo6771' \
-            | sort || true
-
-          echo
-
-          if [ -f arch/arm64/configs/oppo6771_defconfig ]; then
-              echo "DEFCONFIG=oppo6771_defconfig" >> "$GITHUB_ENV"
-              echo "Selected: oppo6771_defconfig"
-
-          elif [ -f arch/arm64/configs/oppo6771_debug_defconfig ]; then
-              echo "DEFCONFIG=oppo6771_debug_defconfig" >> "$GITHUB_ENV"
-              echo "Selected: oppo6771_debug_defconfig"
-
-          elif [ -f arch/arm64/configs/mt6771_defconfig ]; then
-              echo "DEFCONFIG=mt6771_defconfig" >> "$GITHUB_ENV"
-              echo "Selected: mt6771_defconfig"
-
-          else
-              echo "::error::No suitable MT6771 defconfig found."
-              exit 1
-          fi
+          # Replace with your target kernel repo link if cloning externally,
+          # or skip if source is in root repository.
+          echo "Kernel source ready."
 
       # ============================================================
-      # 5. AUTOMATIC KCONFIG REPAIR
+      # 5. GENERATE DEFAULT CONFIG (DEFCONFIG)
       # ============================================================
-      - name: Automatic Kconfig Repair
-        shell: bash
+      - name: Configure Defconfig
         run: |
-          set -u
-
-          echo "============================================"
-          echo "AUTOMATIC KCONFIG REPAIR"
-          echo "============================================"
-
-          mkdir -p repair-log
-
-          python3 <<'PY'
-          import os
-          import re
-          from pathlib import Path
-
-          changed = []
-          missing = []
-          files = []
-
-          for p in Path(".").rglob("*"):
-              if not p.is_file():
-                  continue
-              if ".git" in p.parts:
-                  continue
-              if p.name == "Kconfig" or p.name.startswith("Kconfig."):
-                  files.append(p)
-
-          for kconfig in files:
-              try:
-                  text = kconfig.read_text(encoding="utf-8", errors="ignore")
-              except Exception:
-                  continue
-
-              lines = text.splitlines(True)
-              new_lines = []
-              modified = False
-
-              for line in lines:
-                  match = re.match(r'^(\s*)source\s+(.+?)\s*$', line)
-                  if not match:
-                      new_lines.append(line)
-                      continue
-
-                  indent = match.group(1)
-                  target = match.group(2).strip().strip('"').strip("'")
-
-                  if "$(" in target or "${" in target:
-                      new_lines.append(line)
-                      continue
-
-                  target_path = (kconfig.parent / target).resolve()
-
-                  if not target_path.exists():
-                      missing.append(f"{kconfig}:{target}")
-                      new_lines.append(f"{indent}# AUTO-BYPASS-MISSING: {line}")
-                      modified = True
-                  else:
-                      new_lines.append(line)
-
-              if modified:
-                  kconfig.write_text("".join(new_lines), encoding="utf-8")
-                  changed.append(str(kconfig))
-
-          Path("repair-log/missing-kconfig.txt").write_text("\n".join(missing) + ("\n" if missing else ""))
-          Path("repair-log/changed-kconfig.txt").write_text("\n".join(changed) + ("\n" if changed else ""))
-
-          print("Missing Kconfig references:", len(missing))
-          print("Modified Kconfig files:", len(changed))
-          PY
+          export PATH="$GITHUB_WORKSPACE/toolchain/clang/bin:$PATH"
+          export ARCH=arm64
+          export SUBARCH=arm64
+          # Replace 'vendor/fleur_user_defconfig' with your defconfig filename if needed
+          make O=out ARCH=arm64 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-android- fleur_user_defconfig || \
+          make O=out ARCH=arm64 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-android- defconfig
 
       # ============================================================
-      # 6. FIX PRINTK TYPE MISMATCH ERROR
-      # ============================================================
-      - name: Fix Printk Type Mismatch
-        run: |
-          echo "============================================"
-          echo "FIXING PRINTK.H CONFLICT"
-          echo "============================================"
-          
-          PRINTK_H=$(find . -path "*/include/linux/printk.h" | head -n 1)
-          if [ -f "$PRINTK_H" ]; then
-            echo "Found printk.h at $PRINTK_H, applying patch..."
-            sed -i 's/static inline char \*log_buf_addr_get/char \*log_buf_addr_get/g' "$PRINTK_H"
-            sed -i 's/static inline u32 log_buf_len_get/u32 log_buf_len_get/g' "$PRINTK_H"
-            echo "Patch applied successfully!"
-          else
-            echo "printk.h not found, skipping patch."
-          fi
-
-      # ============================================================
-      # 6.1. UPGRADE KERNEL VERSION TO 4.14.186 (STABLE PATCH)
-      # ============================================================
-      - name: Apply Linux Stable Patch to 4.14.186
-        run: |
-          echo "============================================"
-          echo "UPGRADING KERNEL FROM 4.14.141 TO 4.14.186"
-          echo "============================================"
-
-          wget https://cdn.kernel.org/pub/linux/kernel/v4.x/patch-4.14.186.xz
-          xz -d patch-4.14.186.xz
-          patch -p1 --forward < patch-4.14.186 || echo "Some conflicts handled, moving forward..."
-          echo "Kernel source upgraded successfully!"
-
-      # ============================================================
-      # 7. FIX CPUTYPE.H REDEFINITION ERROR
+      # 6. FORCE FIX CPUTYPE.H REDEFINITION ERROR
       # ============================================================
       - name: Fix cpuType.h Redefinition Conflict
         run: |
           echo "============================================"
-          echo "FIXING CPUTYPE.H CONFLICTS"
+          echo "APPLYING FORCE FIX FOR CPUTYPE.H CONFLICTS"
           echo "============================================"
 
-          CPUTYPE_H=$(find . -path "*/include/asm/cputype.h" -o -path "*/arch/arm64/include/asm/cputype.h" | head -n 1)
+          # Redefinition रोकने के लिए struct midr_range और सम्बंधित फ़ंक्शंस को ग्लोबल रीनेम करें
+          find arch/arm64/ -type f \( -name "*.h" -o -name "*.c" \) -exec sed -i 's/struct midr_range {/struct midr_range_bkp {/g' {} +
+          find arch/arm64/ -type f \( -name "*.h" -o -name "*.c" \) -exec sed -i 's/struct midr_range /struct midr_range_bkp /g' {} +
+          find arch/arm64/ -type f \( -name "*.h" -o -name "*.c" \) -exec sed -i 's/is_midr_in_range/is_midr_in_range_bkp/g' {} +
+          
+          find include/ -type f \( -name "*.h" -o -name "*.c" \) -exec sed -i 's/struct midr_range {/struct midr_range_bkp {/g' {} + 2>/dev/null || true
+          find include/ -type f \( -name "*.h" -o -name "*.c" \) -exec sed -i 's/struct midr_range /struct midr_range_bkp /g' {} + 2>/dev/null || true
+          find include/ -type f \( -name "*.h" -o -name "*.c" \) -exec sed -i 's/is_midr_in_range/is_midr_in_range_bkp/g' {} + 2>/dev/null || true
 
-          if [ -f "$CPUTYPE_H" ]; then
-            echo "Found cputype.h at $CPUTYPE_H, fixing duplicate definitions..."
-            sed -i 's/struct midr_range {/struct midr_range_disabled {/g' "$CPUTYPE_H"
-            sed -i 's/static inline bool is_midr_in_range/static inline bool is_midr_in_range_disabled/g' "$CPUTYPE_H"
-            echo "cputype.h fixed successfully!"
-          else
-            echo "cputype.h not found, skipping..."
-          fi
-
-      # ============================================================
-      # 8. PREPARE OUTPUT
-      # ============================================================
-      - name: Prepare Build Directory
-        run: |
-          rm -rf out
-          mkdir -p out
+          echo "Force patch applied successfully!"
 
       # ============================================================
-      # 9. CONFIGURE
-      # ============================================================
-      - name: Configure Kernel
-        shell: bash
-        run: |
-          set -e
-
-          echo "============================================"
-          echo "CONFIGURING KERNEL"
-          echo "============================================"
-
-          echo "Using:"
-          echo "$DEFCONFIG"
-
-          make O=out \
-            ARCH=arm64 \
-            CROSS_COMPILE=aarch64-linux-gnu- \
-            "$DEFCONFIG"
-
-      # ============================================================
-      # 10. SAVE CONFIG
-      # ============================================================
-      - name: Save Kernel Config
-        run: |
-          test -f out/.config
-
-          echo "Configuration successful."
-
-          cp out/.config \
-            repair-log/final.config
-
-          echo ""
-          echo "Config lines:"
-          wc -l out/.config
-
-      # ============================================================
-      # 11. BUILD KERNEL
+      # 7. BUILD KERNEL
       # ============================================================
       - name: Build Kernel
-        shell: bash
         run: |
-          set -o pipefail
-
-          echo "============================================"
-          echo "BUILDING KERNEL"
-          echo "============================================"
-
-          make -j"$(nproc)" \
-            O=out \
+          export PATH="$GITHUB_WORKSPACE/toolchain/clang/bin:$PATH"
+          export ARCH=arm64
+          export SUBARCH=arm64
+          
+          make -j$(nproc --all) O=out \
             ARCH=arm64 \
-            CROSS_COMPILE=aarch64-linux-gnu- \
-            2>&1 | tee repair-log/build.log
+            CC=clang \
+            CLANG_TRIPLE=aarch64-linux-gnu- \
+            CROSS_COMPILE=aarch64-linux-android- \
+            CROSS_COMPILE_ARM32=arm-linux-androideabi-
 
       # ============================================================
-      # 12. SEARCH OUTPUT
+      # 8. UPLOAD KERNEL OUTPUTS
       # ============================================================
       - name: Find Kernel Outputs
-        if: always()
         run: |
-          echo "============================================"
-          echo "SEARCHING KERNEL OUTPUT"
-          echo "============================================"
-
-          mkdir -p kernel-output
-
-          if [ -f out/arch/arm64/boot/Image ]; then
-              cp out/arch/arm64/boot/Image kernel-output/
+          if [ -f "out/arch/arm64/boot/Image.gz-dtb" ]; then
+            echo "Kernel Image found!"
+          elif [ -f "out/arch/arm64/boot/Image" ]; then
+            echo "Kernel Image found!"
           fi
-
-          if [ -f out/arch/arm64/boot/Image.gz ]; then
-              cp out/arch/arm64/boot/Image.gz kernel-output/
-          fi
-
-          if [ -f out/arch/arm64/boot/Image.gz-dtb ]; then
-              cp out/arch/arm64/boot/Image.gz-dtb kernel-output/
-          fi
-
-          if [ -f out/arch/arm64/boot/zImage ]; then
-              cp out/arch/arm64/boot/zImage kernel-output/
-          fi
-
-          find out/arch/arm64/boot \
-            -type f \
-            -name "*.dtb" \
-            -exec cp {} kernel-output/ \; \
-            2>/dev/null || true
-
-          echo ""
-          echo "Found:"
-          find kernel-output \
-            -maxdepth 1 \
-            -type f \
-            -printf '%f\n' \
-            | sort || true
 
       # ============================================================
-      # 13. BUILD REPORT
-      # ============================================================
-      - name: Build Report
-        if: always()
-        run: |
-          echo "============================================"
-          echo "BUILD REPORT"
-          echo "============================================"
-
-          echo ""
-          echo "Kernel:"
-          make kernelversion 2>/dev/null || true
-
-          echo ""
-          echo "Git:"
-          git log -1 --oneline
-
-          echo ""
-          echo "Output:"
-          ls -lah kernel-output 2>/dev/null || true
-
-          echo ""
-          echo "Repair log:"
-          ls -lah repair-log 2>/dev/null || true
-
-      # ============================================================
-      # 14. UPLOAD EVERYTHING USEFUL
+      # 9. UPLOAD ARTIFACTS
       # ============================================================
       - name: Upload Kernel And Logs
-        if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v3
         with:
-          name: oppo-mt6771-build
+          name: Kernel-Output
           path: |
-            kernel-output/
-            repair-log/
-            out/.config
-          if-no-files-found: warn
+            out/arch/arm64/boot/Image*
+            out/arch/arm64/boot/dtbo.img
