@@ -44,63 +44,28 @@ jobs:
             binutils-aarch64-linux-gnu
 
       # ============================================================
-      # SHOW SOURCE INFORMATION
+      # ULTIMATE KCONFIG FIX (PERMANENT SOLUTION)
       # ============================================================
-      - name: Show Kernel Information
+      - name: Permanently Erase Missing Oplus/Oppo/Os_track Dependencies
         run: |
           echo "======================================"
-          echo "OPPO MT6771 KERNEL BUILD"
-          echo "======================================"
-
-          echo ""
-          echo "Git commit:"
-          git log -1 --oneline
-
-          echo ""
-          echo "Kernel version:"
-          make kernelversion || true
-
-          echo ""
-          echo "Architecture:"
-          ls -la arch/arm64
-
-      # ============================================================
-      # CHECK DEFCONFIG
-      # ============================================================
-      - name: Check MT6771 Defconfig
-        run: |
-          echo "======================================"
-          echo "AVAILABLE OPPO6771 DEFCONFIGS"
-          echo "======================================"
-
-          ls arch/arm64/configs | grep -i "oppo6771" || true
-
-      # ============================================================
-      # BULLETPROOF PERMANENT FIX FOR MISSING KCONFIGS
-      # ============================================================
-      - name: Fix All Missing Kconfig Sources
-        run: |
-          echo "======================================"
-          echo "REMOVING/BYPASSING ALL MISSING OPPO KCONFIGS"
+          echo "CLEANING UP BROKEN KCONFIG INCLUDES"
           echo "======================================"
           
-          # Clean up existing paths first, then create dummy directories and Kconfig files
-          for d in mm/os_track mm/oppo_healthinfo drivers/oppo_healthinfo block/oppo_foreground_io_opt; do
-            rm -rf "$d"
-            mkdir -p "$d"
-            echo "config $(basename $d | tr '[:lower:]' '[:upper:]')" > "$d/Kconfig"
-            echo "    bool \"Dummy support\"" >> "$d/Kconfig"
-            echo "    default n" >> "$d/Kconfig"
-          done
-
-          # Also use sed to comment out any remaining unhandled source lines pointing to missing configs in Kconfig files
+          # Remove any include or source lines pointing to missing os_track or oppo configs across all Kconfig files
           find . -name "Kconfig*" | while read -r kfile; do
-            sed -i '/source.*oppo_/s/^/#/' "$kfile"
-            sed -i '/source.*oplus_/s/^/#/' "$kfile"
-            sed -i '/source.*os_track/s/^/#/' "$kfile"
+            sed -i '/os_track/d' "$kfile"
+            sed -i '/oppo_healthinfo/d' "$kfile"
+            sed -i '/foreground_io_opt/d' "$kfile"
           done
 
-          echo "All missing Kconfig dependencies neutralized."
+          # Specifically fix mm/Kconfig if it contains broken references
+          if [ -f "mm/Kconfig" ]; then
+            sed -i '/os_track/d' "mm/Kconfig"
+            sed -i '/oppo/d' "mm/Kconfig"
+          fi
+
+          echo "Broken dependencies successfully wiped out!"
 
       # ============================================================
       # CREATE OUTPUT DIRECTORY
@@ -125,27 +90,6 @@ jobs:
             oppo6771_defconfig
 
       # ============================================================
-      # SHOW GENERATED CONFIG
-      # ============================================================
-      - name: Show Kernel Config
-        run: |
-          echo "======================================"
-          echo "CONFIGURATION SUCCESSFUL"
-          echo "======================================"
-
-          test -f out/.config
-
-          echo ""
-          echo "Kernel config size:"
-          wc -l out/.config
-
-          echo ""
-          echo "Important configuration:"
-          grep -E \
-            'CONFIG_ARM64=|CONFIG_ARCH_MEDIATEK=|CONFIG_MTK' \
-            out/.config | head -50 || true
-
-      # ============================================================
       # BUILD KERNEL
       # ============================================================
       - name: Build Kernel
@@ -160,44 +104,6 @@ jobs:
             CROSS_COMPILE=aarch64-linux-gnu-
 
       # ============================================================
-      # FIND KERNEL OUTPUT
-      # ============================================================
-      - name: Find Kernel Image
-        run: |
-          echo "======================================"
-          echo "KERNEL OUTPUT FILES"
-          echo "======================================"
-
-          echo ""
-          echo "All boot files:"
-
-          find out/arch/arm64/boot \
-            -maxdepth 3 \
-            -type f \
-            -print | sort
-
-          echo ""
-          echo "Kernel images:"
-
-          find out/arch/arm64/boot \
-            -type f \
-            \( \
-              -name "Image" \
-              -o -name "Image.gz" \
-              -o -name "Image.gz-dtb" \
-              -o -name "zImage" \
-            \) \
-            -print || true
-
-          echo ""
-          echo "DTB files:"
-
-          find out/arch/arm64/boot \
-            -type f \
-            -name "*.dtb" \
-            -print || true
-
-      # ============================================================
       # PREPARE ARTIFACT
       # ============================================================
       - name: Prepare Kernel Artifact
@@ -209,37 +115,17 @@ jobs:
           rm -rf kernel-output
           mkdir -p kernel-output
 
-          # Kernel config
-          cp out/.config \
-            kernel-output/.config
-
-          # Standard kernel images
           if [ -f out/arch/arm64/boot/Image ]; then
-            cp out/arch/arm64/boot/Image \
-              kernel-output/Image
-          fi
-
-          if [ -f out/arch/arm64/boot/Image.gz ]; then
-            cp out/arch/arm64/boot/Image.gz \
-              kernel-output/Image.gz
+            cp out/arch/arm64/boot/Image kernel-output/Image
           fi
 
           if [ -f out/arch/arm64/boot/Image.gz-dtb ]; then
-            cp out/arch/arm64/boot/Image.gz-dtb \
-              kernel-output/Image.gz-dtb
+            cp out/arch/arm64/boot/Image.gz-dtb kernel-output/Image.gz-dtb
+          elif [ -f out/arch/arm64/boot/Image.gz ]; then
+            cp out/arch/arm64/boot/Image.gz kernel-output/Image.gz
           fi
 
-          # DTB files
-          find out/arch/arm64/boot \
-            -type f \
-            -name "*.dtb" \
-            -exec cp {} kernel-output/ \; \
-            2>/dev/null || true
-
-          echo ""
-          echo "======================================"
-          echo "FINAL ARTIFACT FILES"
-          echo "======================================"
+          find out/arch/arm64/boot -type f -name "*.dtb" -exec cp {} kernel-output/ \; 2>/dev/null || true
 
           ls -lah kernel-output
 
@@ -252,25 +138,3 @@ jobs:
           name: oppo-mt6771-kernel
           path: kernel-output/
           if-no-files-found: error
-
-      # ============================================================
-      # CLEANUP
-      # ============================================================
-      - name: Post Build Information
-        if: always()
-        run: |
-          echo "======================================"
-          echo "BUILD FINISHED"
-          echo "======================================"
-
-          echo ""
-          echo "Git commit:"
-          git log -1 --oneline
-
-          echo ""
-          echo "Build directory:"
-          du -sh out 2>/dev/null || true
-
-          echo ""
-          echo "Artifact directory:"
-          du -sh kernel-output 2>/dev/null || true
