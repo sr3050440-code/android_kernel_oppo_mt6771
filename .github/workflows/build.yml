@@ -103,18 +103,18 @@ jobs:
           fi
 
       # ============================================================
-      # FIX MISSING OPPO HEALTHINFO KCONFIG
+      # CREATE DUMMY OPPO HEALTHINFO KCONFIG
       # ============================================================
-      - name: Fix Missing Oppo Healthinfo Kconfig
+      - name: Create Dummy Oppo Healthinfo
         run: |
           echo "======================================"
-          echo "CHECKING OPPO HEALTHINFO KCONFIG"
+          echo "CREATING DUMMY OPPO HEALTHINFO FOLDER"
           echo "======================================"
           
-          if [ ! -d "drivers/oppo_healthinfo" ]; then
-            echo "drivers/oppo_healthinfo is missing. Removing reference from arch/Kconfig..."
-            sed -i '/oppo_healthinfo/s/^/#/' arch/Kconfig || true
-          fi
+          mkdir -p drivers/oppo_healthinfo
+          echo "config OPPO_HEALTHINFO" > drivers/oppo_healthinfo/Kconfig
+          echo "    bool \"Oppo Health Info Support\"" >> drivers/oppo_healthinfo/Kconfig
+          echo "    default n" >> drivers/oppo_healthinfo/Kconfig
 
       # ============================================================
       # CREATE OUTPUT DIRECTORY
