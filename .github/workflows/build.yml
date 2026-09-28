@@ -84,8 +84,9 @@ jobs:
           echo "REMOVING/BYPASSING ALL MISSING OPPO KCONFIGS"
           echo "======================================"
           
-          # Create dummy directories and Kconfig files for common missing paths
+          # Clean up existing paths first, then create dummy directories and Kconfig files
           for d in mm/os_track mm/oppo_healthinfo drivers/oppo_healthinfo block/oppo_foreground_io_opt; do
+            rm -rf "$d"
             mkdir -p "$d"
             echo "config $(basename $d | tr '[:lower:]' '[:upper:]')" > "$d/Kconfig"
             echo "    bool \"Dummy support\"" >> "$d/Kconfig"
