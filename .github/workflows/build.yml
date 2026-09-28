@@ -1,4 +1,4 @@
-name: Build MT6771 Kernel
+name: Build OPPO MT6771 Kernel
 
 on:
   workflow_dispatch:
@@ -9,198 +9,133 @@ jobs:
 
     steps:
 
-      # ============================================
+      # ==========================================
       # CHECKOUT
-      # ============================================
+      # ==========================================
       - name: Checkout Kernel Source
         uses: actions/checkout@v4
         with:
+          ref: oppo/mt6771_r_11
           fetch-depth: 1
 
-
-      # ============================================
+      # ==========================================
       # DEPENDENCIES
-      # ============================================
+      # ==========================================
       - name: Install Dependencies
         run: |
           sudo apt-get update
-
           sudo apt-get install -y \
             bc \
             bison \
             flex \
-            build-essential \
-            git \
-            curl \
-            zip \
-            unzip \
             libssl-dev \
             libelf-dev \
+            make \
+            gcc \
+            g++ \
+            git \
             cpio \
-            rsync \
-            python3
+            device-tree-compiler \
+            gcc-aarch64-linux-gnu \
+            binutils-aarch64-linux-gnu
 
-
-      # ============================================
-      # SHOW SOURCE INFORMATION
-      # ============================================
+      # ==========================================
+      # KERNEL INFORMATION
+      # ==========================================
       - name: Show Kernel Information
         run: |
-          echo "======================================"
-          echo "MT6771 KERNEL"
-          echo "======================================"
-
+          echo "Kernel source:"
+          git log -1 --oneline
           echo
           echo "Kernel version:"
           make kernelversion || true
-
-          echo
-          echo "Current commit:"
-          git log -1 --oneline
-
           echo
           echo "Architecture:"
-          grep -E '^CONFIG_ARCH_MT' arch/arm64/configs/* 2>/dev/null || true
+          ls arch/arm64
 
-
-      # ============================================
-      # FIND DEFCONFIGS
-      # ============================================
-      - name: Find MT6771 Defconfig
+      # ==========================================
+      # CHECK DEFCONFIG
+      # ==========================================
+      - name: Check OPPO MT6771 Defconfig
         run: |
-          echo "======================================"
-          echo "AVAILABLE DEFCONFIGS"
-          echo "======================================"
+          echo "Checking available OPPO defconfigs..."
+          ls arch/arm64/configs | grep -i "oppo6771"
 
-          find arch/arm64/configs \
-            -maxdepth 1 \
-            -type f \
-            | sort
-
-          echo
-          echo "MT6771 related configs:"
-          find arch/arm64/configs \
-            -maxdepth 1 \
-            -type f \
-            | grep -Ei 'mt6771|oppo|reno|r11|a3|f7|ax5' \
-            || true
-
-
-      # ============================================
-      # AUTOMATICALLY SELECT DEFCONFIG
-      # ============================================
-      - name: Select Defconfig
-        run: |
-          set -e
-
-          CONFIG=""
-
-          for name in \
-            mt6771_defconfig \
-            oppo_mt6771_defconfig \
-            oppo_defconfig \
-            mt6771_r_11_defconfig \
-            mt6771_r11_defconfig
-          do
-            if [ -f "arch/arm64/configs/$name" ]; then
-              CONFIG="$name"
-              break
-            fi
-          done
-
-          if [ -z "$CONFIG" ]; then
-            echo
-            echo "ERROR: No known MT6771 defconfig found."
-            echo
-            echo "Available configs:"
-            ls arch/arm64/configs
-            exit 1
-          fi
-
-          echo "Using defconfig: $CONFIG"
-
-          echo "DEFCONFIG=$CONFIG" >> "$GITHUB_ENV"
-
-
-      # ============================================
+      # ==========================================
       # CONFIGURE KERNEL
-      # ============================================
+      # ==========================================
       - name: Configure Kernel
         run: |
-          set -e
-
-          echo "======================================"
-          echo "CONFIGURING KERNEL"
-          echo "======================================"
-
-          echo "Defconfig: $DEFCONFIG"
+          mkdir -p out
 
           make O=out \
             ARCH=arm64 \
             CROSS_COMPILE=aarch64-linux-gnu- \
-            "$DEFCONFIG"
+            oppo6771_defconfig
 
-          echo
-          echo "Configuration completed."
-
-          test -f out/.config
-
-
-      # ============================================
-      # INSTALL CROSS COMPILER
-      # ============================================
-      - name: Install AArch64 Compiler
+      # ==========================================
+      # SHOW CONFIG
+      # ==========================================
+      - name: Show Kernel Config
         run: |
-          sudo apt-get update
+          echo "CONFIGURATION SUCCESSFUL"
 
-          sudo apt-get install -y \
-            gcc-aarch64-linux-gnu \
-            g++-aarch64-linux-gnu
+          grep -E \
+            'CONFIG_ARCH_MEDIATEK|CONFIG_MACH_MT6771|CONFIG_ARM64' \
+            out/.config || true
 
-
-      # ============================================
+      # ==========================================
       # BUILD KERNEL
-      # ============================================
+      # ==========================================
       - name: Build Kernel
         run: |
-          set -e
-
-          echo "======================================"
-          echo "BUILDING MT6771 KERNEL"
-          echo "======================================"
-
-          make -j"$(nproc)" \
+          make -j$(nproc) \
             O=out \
             ARCH=arm64 \
-            CROSS_COMPILE=aarch64-linux-gnu- \
-            KCFLAGS="-Wno-error"
+            CROSS_COMPILE=aarch64-linux-gnu-
 
-      # ============================================
-      # SHOW BUILD OUTPUT
-      # ============================================
+      # ==========================================
+      # FIND KERNEL IMAGE
+      # ==========================================
       - name: Find Kernel Image
         run: |
-          echo "======================================"
-          echo "BUILD OUTPUT"
-          echo "======================================"
+          echo "===== Kernel outputs ====="
 
           find out/arch/arm64/boot \
             -maxdepth 2 \
             -type f \
-            -printf '%p\n' \
-            | sort
+            \( -name "Image" \
+            -o -name "Image.gz" \
+            -o -name "Image.gz-dtb" \
+            -o -name "*.dtb" \
+            \) \
+            -print || true
 
+      # ==========================================
+      # PACKAGE
+      # ==========================================
+      - name: Prepare Kernel Artifact
+        run: |
+          mkdir -p kernel-output
 
-      # ============================================
-      # UPLOAD KERNEL
-      # ============================================
+          cp out/.config kernel-output/ 2>/dev/null || true
+          cp out/arch/arm64/boot/Image kernel-output/ 2>/dev/null || true
+          cp out/arch/arm64/boot/Image.gz kernel-output/ 2>/dev/null || true
+          cp out/arch/arm64/boot/Image.gz-dtb kernel-output/ 2>/dev/null || true
+
+          find out/arch/arm64/boot \
+            -name "*.dtb" \
+            -exec cp {} kernel-output/ \; 2>/dev/null || true
+
+          echo "===== Final files ====="
+          ls -lah kernel-output
+
+      # ==========================================
+      # UPLOAD
+      # ==========================================
       - name: Upload Kernel
         uses: actions/upload-artifact@v4
         with:
-          name: MT6771-kernel
-          path: |
-            out/arch/arm64/boot/Image
-            out/arch/arm64/boot/Image.gz
-            out/arch/arm64/boot/Image.gz-dtb
-            out/.config
-          if-no-files-found: warn
+          name: oppo-mt6771-kernel
+          path: kernel-output/
+          if-no-files-found: error
