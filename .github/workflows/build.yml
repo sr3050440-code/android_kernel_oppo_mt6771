@@ -103,6 +103,20 @@ jobs:
           fi
 
       # ============================================================
+      # FIX MISSING OPPO HEALTHINFO KCONFIG
+      # ============================================================
+      - name: Fix Missing Oppo Healthinfo Kconfig
+        run: |
+          echo "======================================"
+          echo "CHECKING OPPO HEALTHINFO KCONFIG"
+          echo "======================================"
+          
+          if [ ! -d "drivers/oppo_healthinfo" ]; then
+            echo "drivers/oppo_healthinfo is missing. Removing reference from arch/Kconfig..."
+            sed -i '/oppo_healthinfo/s/^/#/' arch/Kconfig || true
+          fi
+
+      # ============================================================
       # CREATE OUTPUT DIRECTORY
       # ============================================================
       - name: Prepare Build Directory
