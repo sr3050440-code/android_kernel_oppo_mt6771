@@ -249,7 +249,7 @@ jobs:
           wc -l out/.config
 
       # ============================================================
-      # 10. BUILD
+      # 10. BUILD (SINGLE CORE TO DETECT DEADLOCKS/ERRORS)
       # ============================================================
       - name: Build Kernel
         shell: bash
@@ -257,10 +257,10 @@ jobs:
           set -o pipefail
 
           echo "============================================"
-          echo "BUILDING KERNEL"
+          echo "BUILDING KERNEL (SINGLE CORE -j1)"
           echo "============================================"
 
-          make -j"$(nproc)" \
+          make -j1 \
             O=out \
             ARCH=arm64 \
             CROSS_COMPILE=aarch64-linux-gnu- \
