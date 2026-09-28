@@ -103,19 +103,24 @@ jobs:
           fi
 
       # ============================================================
-      # CREATE DUMMY OPPO HEALTHINFO KCONFIG
+      # CREATE DUMMY MM OPPO HEALTHINFO KCONFIG
       # ============================================================
-      - name: Create Dummy Oppo Healthinfo
+      - name: Create Dummy MM Oppo Healthinfo
         run: |
           echo "======================================"
-          echo "CREATING DUMMY OPPO HEALTHINFO"
+          echo "CREATING DUMMY MM OPPO HEALTHINFO"
           echo "======================================"
           
+          mkdir -p mm/oppo_healthinfo
+          echo "config OPPO_HEALTHINFO" > mm/oppo_healthinfo/Kconfig
+          echo "    bool \"Oppo Health Info Support\"" >> mm/oppo_healthinfo/Kconfig
+          echo "    default n" >> mm/oppo_healthinfo/Kconfig
+          
+          # Also keep drivers dummy just in case
           mkdir -p drivers/oppo_healthinfo
-          echo "config OPPO_HEALTHINFO" > drivers/oppo_healthinfo/Kconfig
-          echo "    bool \"Oppo Health Info Support\"" >> drivers/oppo_healthinfo/Kconfig
-          echo "    default n" >> drivers/oppo_healthinfo/Kconfig
-          echo "Dummy Kconfig created successfully."
+          cp mm/oppo_healthinfo/Kconfig drivers/oppo_healthinfo/Kconfig
+          
+          echo "Dummy Kconfig files created successfully in mm/ and drivers/."
 
       # ============================================================
       # CREATE OUTPUT DIRECTORY
