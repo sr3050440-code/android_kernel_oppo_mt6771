@@ -76,30 +76,30 @@ jobs:
           ls arch/arm64/configs | grep -i "oppo6771" || true
 
       # ============================================================
-      # PERMANENT FIX: DISABLE ALL MISSING OPPO/OPLUS KCONFIG SOURCES
+      # BULLETPROOF PERMANENT FIX FOR MISSING KCONFIGS
       # ============================================================
-      - name: Permanently Fix Missing Kconfig Sources
+      - name: Fix All Missing Kconfig Sources
         run: |
           echo "======================================"
-          echo "REMOVING MISSING OPPO KCONFIG DEPENDENCIES"
+          echo "REMOVING/BYPASSING ALL MISSING OPPO KCONFIGS"
           echo "======================================"
           
-          # Find all Kconfig files and comment out lines sourcing non-existent paths containing oppo or oplus
+          # Create dummy directories and Kconfig files for common missing paths
+          for d in mm/os_track mm/oppo_healthinfo drivers/oppo_healthinfo block/oppo_foreground_io_opt; do
+            mkdir -p "$d"
+            echo "config $(basename $d | tr '[:lower:]' '[:upper:]')" > "$d/Kconfig"
+            echo "    bool \"Dummy support\"" >> "$d/Kconfig"
+            echo "    default n" >> "$d/Kconfig"
+          done
+
+          # Also use sed to comment out any remaining unhandled source lines pointing to missing configs in Kconfig files
           find . -name "Kconfig*" | while read -r kfile; do
-            # Comment out source lines that point to missing oppo/oplus directories
             sed -i '/source.*oppo_/s/^/#/' "$kfile"
             sed -i '/source.*oplus_/s/^/#/' "$kfile"
+            sed -i '/source.*os_track/s/^/#/' "$kfile"
           done
-          
-          # Specifically target common problematic Kconfig includes
-          for file in mm/Kconfig drivers/Kconfig block/Kconfig arch/arm64/Kconfig; do
-            if [ -f "$file" ]; then
-              sed -i '/oppo_/s/^/#/' "$file"
-              sed -i '/oplus_/s/^/#/' "$file"
-            fi
-          done
-          
-          echo "All missing OPPO/OPLUS Kconfig dependencies disabled permanently."
+
+          echo "All missing Kconfig dependencies neutralized."
 
       # ============================================================
       # CREATE OUTPUT DIRECTORY
