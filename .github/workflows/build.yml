@@ -9,21 +9,22 @@ jobs:
 
     steps:
 
-      # ==========================================
+      # ============================================================
       # CHECKOUT
-      # ==========================================
+      # ============================================================
       - name: Checkout Kernel Source
         uses: actions/checkout@v4
         with:
           ref: oppo/mt6771_r_11
           fetch-depth: 1
 
-      # ==========================================
-      # DEPENDENCIES
-      # ==========================================
+      # ============================================================
+      # INSTALL DEPENDENCIES
+      # ============================================================
       - name: Install Dependencies
         run: |
           sudo apt-get update
+
           sudo apt-get install -y \
             bc \
             bison \
@@ -35,107 +36,241 @@ jobs:
             g++ \
             git \
             cpio \
+            rsync \
+            unzip \
+            zip \
             device-tree-compiler \
             gcc-aarch64-linux-gnu \
             binutils-aarch64-linux-gnu
 
-      # ==========================================
-      # KERNEL INFORMATION
-      # ==========================================
+      # ============================================================
+      # SHOW SOURCE INFORMATION
+      # ============================================================
       - name: Show Kernel Information
         run: |
-          echo "Kernel source:"
+          echo "======================================"
+          echo "OPPO MT6771 KERNEL BUILD"
+          echo "======================================"
+
+          echo ""
+          echo "Git commit:"
           git log -1 --oneline
-          echo
+
+          echo ""
           echo "Kernel version:"
           make kernelversion || true
-          echo
+
+          echo ""
           echo "Architecture:"
-          ls arch/arm64
+          ls -la arch/arm64
 
-      # ==========================================
+      # ============================================================
       # CHECK DEFCONFIG
-      # ==========================================
-      - name: Check OPPO MT6771 Defconfig
+      # ============================================================
+      - name: Check MT6771 Defconfig
         run: |
-          echo "Checking available OPPO defconfigs..."
-          ls arch/arm64/configs | grep -i "oppo6771"
+          echo "======================================"
+          echo "AVAILABLE OPPO6771 DEFCONFIGS"
+          echo "======================================"
 
-      # ==========================================
+          ls arch/arm64/configs | grep -i "oppo6771" || true
+
+      # ============================================================
+      # FIX MISSING OPLUS FOREGROUND IO KCONFIG
+      # ============================================================
+      - name: Fix Missing OPLUS FG IO Kconfig
+        run: |
+          echo "======================================"
+          echo "CHECKING OPLUS FOREGROUND IO KCONFIG"
+          echo "======================================"
+
+          if [ -f block/oppo_foreground_io_opt/Kconfig ]; then
+            echo "OPLUS foreground IO Kconfig exists."
+          else
+            echo "WARNING:"
+            echo "block/oppo_foreground_io_opt/Kconfig is missing."
+
+            echo ""
+            echo "Disabling missing Kconfig reference..."
+
+            sed -i \
+              '/^[[:space:]]*source[[:space:]]\+block\/oppo_foreground_io_opt\/Kconfig/s/^/#/' \
+              block/Kconfig
+
+            echo ""
+            echo "Remaining reference:"
+            grep -n "oppo_foreground_io_opt" block/Kconfig || true
+          fi
+
+      # ============================================================
+      # CREATE OUTPUT DIRECTORY
+      # ============================================================
+      - name: Prepare Build Directory
+        run: |
+          rm -rf out
+          mkdir -p out
+
+      # ============================================================
       # CONFIGURE KERNEL
-      # ==========================================
+      # ============================================================
       - name: Configure Kernel
         run: |
-          mkdir -p out
+          echo "======================================"
+          echo "CONFIGURING OPPO6771 KERNEL"
+          echo "======================================"
 
           make O=out \
             ARCH=arm64 \
             CROSS_COMPILE=aarch64-linux-gnu- \
             oppo6771_defconfig
 
-      # ==========================================
-      # SHOW CONFIG
-      # ==========================================
+      # ============================================================
+      # SHOW GENERATED CONFIG
+      # ============================================================
       - name: Show Kernel Config
         run: |
+          echo "======================================"
           echo "CONFIGURATION SUCCESSFUL"
+          echo "======================================"
 
+          test -f out/.config
+
+          echo ""
+          echo "Kernel config size:"
+          wc -l out/.config
+
+          echo ""
+          echo "Important configuration:"
           grep -E \
-            'CONFIG_ARCH_MEDIATEK|CONFIG_MACH_MT6771|CONFIG_ARM64' \
-            out/.config || true
+            'CONFIG_ARM64=|CONFIG_ARCH_MEDIATEK=|CONFIG_MTK' \
+            out/.config | head -50 || true
 
-      # ==========================================
+      # ============================================================
       # BUILD KERNEL
-      # ==========================================
+      # ============================================================
       - name: Build Kernel
         run: |
+          echo "======================================"
+          echo "BUILDING KERNEL"
+          echo "======================================"
+
           make -j$(nproc) \
             O=out \
             ARCH=arm64 \
             CROSS_COMPILE=aarch64-linux-gnu-
 
-      # ==========================================
-      # FIND KERNEL IMAGE
-      # ==========================================
+      # ============================================================
+      # FIND KERNEL OUTPUT
+      # ============================================================
       - name: Find Kernel Image
         run: |
-          echo "===== Kernel outputs ====="
+          echo "======================================"
+          echo "KERNEL OUTPUT FILES"
+          echo "======================================"
+
+          echo ""
+          echo "All boot files:"
 
           find out/arch/arm64/boot \
-            -maxdepth 2 \
+            -maxdepth 3 \
             -type f \
-            \( -name "Image" \
-            -o -name "Image.gz" \
-            -o -name "Image.gz-dtb" \
-            -o -name "*.dtb" \
+            -print | sort
+
+          echo ""
+          echo "Kernel images:"
+
+          find out/arch/arm64/boot \
+            -type f \
+            \( \
+              -name "Image" \
+              -o -name "Image.gz" \
+              -o -name "Image.gz-dtb" \
+              -o -name "zImage" \
             \) \
             -print || true
 
-      # ==========================================
-      # PACKAGE
-      # ==========================================
-      - name: Prepare Kernel Artifact
-        run: |
-          mkdir -p kernel-output
-
-          cp out/.config kernel-output/ 2>/dev/null || true
-          cp out/arch/arm64/boot/Image kernel-output/ 2>/dev/null || true
-          cp out/arch/arm64/boot/Image.gz kernel-output/ 2>/dev/null || true
-          cp out/arch/arm64/boot/Image.gz-dtb kernel-output/ 2>/dev/null || true
+          echo ""
+          echo "DTB files:"
 
           find out/arch/arm64/boot \
+            -type f \
             -name "*.dtb" \
-            -exec cp {} kernel-output/ \; 2>/dev/null || true
+            -print || true
 
-          echo "===== Final files ====="
+      # ============================================================
+      # PREPARE ARTIFACT
+      # ============================================================
+      - name: Prepare Kernel Artifact
+        run: |
+          echo "======================================"
+          echo "PREPARING ARTIFACT"
+          echo "======================================"
+
+          rm -rf kernel-output
+          mkdir -p kernel-output
+
+          # Kernel config
+          cp out/.config \
+            kernel-output/.config
+
+          # Standard kernel images
+          if [ -f out/arch/arm64/boot/Image ]; then
+            cp out/arch/arm64/boot/Image \
+              kernel-output/Image
+          fi
+
+          if [ -f out/arch/arm64/boot/Image.gz ]; then
+            cp out/arch/arm64/boot/Image.gz \
+              kernel-output/Image.gz
+          fi
+
+          if [ -f out/arch/arm64/boot/Image.gz-dtb ]; then
+            cp out/arch/arm64/boot/Image.gz-dtb \
+              kernel-output/Image.gz-dtb
+          fi
+
+          # DTB files
+          find out/arch/arm64/boot \
+            -type f \
+            -name "*.dtb" \
+            -exec cp {} kernel-output/ \; \
+            2>/dev/null || true
+
+          echo ""
+          echo "======================================"
+          echo "FINAL ARTIFACT FILES"
+          echo "======================================"
+
           ls -lah kernel-output
 
-      # ==========================================
-      # UPLOAD
-      # ==========================================
+      # ============================================================
+      # UPLOAD ARTIFACT
+      # ============================================================
       - name: Upload Kernel
         uses: actions/upload-artifact@v4
         with:
           name: oppo-mt6771-kernel
           path: kernel-output/
           if-no-files-found: error
+
+      # ============================================================
+      # CLEANUP
+      # ============================================================
+      - name: Post Build Information
+        if: always()
+        run: |
+          echo "======================================"
+          echo "BUILD FINISHED"
+          echo "======================================"
+
+          echo ""
+          echo "Git commit:"
+          git log -1 --oneline
+
+          echo ""
+          echo "Build directory:"
+          du -sh out 2>/dev/null || true
+
+          echo ""
+          echo "Artifact directory:"
+          du -sh kernel-output 2>/dev/null || true
