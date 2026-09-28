@@ -44,26 +44,21 @@ jobs:
             binutils-aarch64-linux-gnu
 
       # ============================================================
-      # DIRECT MANUAL PATCH FOR MM/KCONFIG (PERMANENT FIX)
+      # AUTOMATICALLY PURGE ALL BROKEN/MISSING KCONFIG REFERENCES
       # ============================================================
-      - name: Patch mm/Kconfig Manually
+      - name: Auto-Fix All Missing Kconfig Sources
         run: |
           echo "======================================"
-          echo "PATCHING mm/KCONFIG TO REMOVE os_track"
+          echo "CLEANING UP MISSING OPPO KCONFIG FILES"
           echo "======================================"
           
-          if [ -f "mm/Kconfig" ]; then
-            # Delete any lines containing os_track inside mm/Kconfig
-            sed -i '/os_track/d' mm/Kconfig
-            echo "Successfully removed os_track from mm/Kconfig"
-          else
-            echo "mm/Kconfig not found!"
-          fi
-
-          # Also check and clean all other Kconfig files just in case
-          find . -name "Kconfig*" | while read -r kfile; do
-            sed -i '/os_track/d' "$kfile" || true
-          done
+          find . -name "Kconfig*" -exec sed -i '/os_track/d' {} \;
+          find . -name "Kconfig*" -exec sed -i '/ram_sum/d' {} \;
+          find . -name "Kconfig*" -exec sed -i '/rank_sum/d' {} \;
+          find . -name "Kconfig*" -exec sed -i '/foreground_io_opt/d' {} \;
+          find . -name "Kconfig*" -exec sed -i '/oppo_healthinfo/d' {} \;
+          
+          echo "All ghost Kconfig paths cleaned successfully!"
 
       # ============================================================
       # CREATE OUTPUT DIRECTORY
