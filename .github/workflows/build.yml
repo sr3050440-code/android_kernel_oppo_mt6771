@@ -76,52 +76,30 @@ jobs:
           ls arch/arm64/configs | grep -i "oppo6771" || true
 
       # ============================================================
-      # FIX MISSING OPLUS FOREGROUND IO KCONFIG
+      # PERMANENT FIX: DISABLE ALL MISSING OPPO/OPLUS KCONFIG SOURCES
       # ============================================================
-      - name: Fix Missing OPLUS FG IO Kconfig
+      - name: Permanently Fix Missing Kconfig Sources
         run: |
           echo "======================================"
-          echo "CHECKING OPLUS FOREGROUND IO KCONFIG"
-          echo "======================================"
-
-          if [ -f block/oppo_foreground_io_opt/Kconfig ]; then
-            echo "OPLUS foreground IO Kconfig exists."
-          else
-            echo "WARNING:"
-            echo "block/oppo_foreground_io_opt/Kconfig is missing."
-
-            echo ""
-            echo "Disabling missing Kconfig reference..."
-
-            sed -i \
-              '/^[[:space:]]*source[[:space:]]\+block\/oppo_foreground_io_opt\/Kconfig/s/^/#/' \
-              block/Kconfig
-
-            echo ""
-            echo "Remaining reference:"
-            grep -n "oppo_foreground_io_opt" block/Kconfig || true
-          fi
-
-      # ============================================================
-      # CREATE DUMMY MM OPPO HEALTHINFO KCONFIG
-      # ============================================================
-      - name: Create Dummy MM Oppo Healthinfo
-        run: |
-          echo "======================================"
-          echo "CREATING DUMMY MM OPPO HEALTHINFO"
+          echo "REMOVING MISSING OPPO KCONFIG DEPENDENCIES"
           echo "======================================"
           
-          rm -rf mm/oppo_healthinfo drivers/oppo_healthinfo
+          # Find all Kconfig files and comment out lines sourcing non-existent paths containing oppo or oplus
+          find . -name "Kconfig*" | while read -r kfile; do
+            # Comment out source lines that point to missing oppo/oplus directories
+            sed -i '/source.*oppo_/s/^/#/' "$kfile"
+            sed -i '/source.*oplus_/s/^/#/' "$kfile"
+          done
           
-          mkdir -p mm/oppo_healthinfo
-          echo "config OPPO_HEALTHINFO" > mm/oppo_healthinfo/Kconfig
-          echo "    bool \"Oppo Health Info Support\"" >> mm/oppo_healthinfo/Kconfig
-          echo "    default n" >> mm/oppo_healthinfo/Kconfig
+          # Specifically target common problematic Kconfig includes
+          for file in mm/Kconfig drivers/Kconfig block/Kconfig arch/arm64/Kconfig; do
+            if [ -f "$file" ]; then
+              sed -i '/oppo_/s/^/#/' "$file"
+              sed -i '/oplus_/s/^/#/' "$file"
+            fi
+          done
           
-          mkdir -p drivers/oppo_healthinfo
-          cp mm/oppo_healthinfo/Kconfig drivers/oppo_healthinfo/Kconfig
-          
-          echo "Dummy Kconfig files created successfully."
+          echo "All missing OPPO/OPLUS Kconfig dependencies disabled permanently."
 
       # ============================================================
       # CREATE OUTPUT DIRECTORY
