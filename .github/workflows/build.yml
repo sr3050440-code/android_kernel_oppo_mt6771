@@ -1,4 +1,4 @@
-name: Build OPPO MT6771 Kernel
+name: OPPO MT6771 - Auto Build
 
 on:
   workflow_dispatch:
@@ -10,16 +10,17 @@ jobs:
     steps:
 
       # ============================================================
-      # CHECKOUT
+      # 1. CHECKOUT
       # ============================================================
       - name: Checkout Kernel Source
         uses: actions/checkout@v4
         with:
           ref: oppo/mt6771_r_11
           fetch-depth: 1
+          submodules: recursive
 
       # ============================================================
-      # INSTALL DEPENDENCIES
+      # 2. DEPENDENCIES
       # ============================================================
       - name: Install Dependencies
         run: |
@@ -31,43 +32,244 @@ jobs:
             flex \
             libssl-dev \
             libelf-dev \
-            make \
+            libncurses-dev \
             gcc \
             g++ \
+            make \
             git \
             cpio \
             rsync \
             unzip \
             zip \
+            gzip \
+            xz-utils \
             device-tree-compiler \
+            python3 \
+            python3-pip \
+            perl \
+            openssl \
+            file \
+            pahole \
             gcc-aarch64-linux-gnu \
             binutils-aarch64-linux-gnu
 
       # ============================================================
-      # AUTOMATICALLY PURGE ALL BROKEN/MISSING KCONFIG REFERENCES
+      # 3. SOURCE INFORMATION
       # ============================================================
-      - name: Auto-Fix All Missing Kconfig Sources
+      - name: Kernel Information
         run: |
-          echo "======================================"
-          echo "CLEANING UP MISSING OPPO KCONFIG FILES"
-          echo "======================================"
-          
-          sed -i '/os_track/d' mm/Kconfig || true
-          sed -i '/malloc_track/d' mm/Kconfig || true
-          sed -i '/task_mem/d' mm/Kconfig || true
-          sed -i '/oppo_healthinfo/d' mm/Kconfig || true
-          sed -i '/foreground_io_opt/d' block/Kconfig || true
-          sed -i '/oppo_virtual_sensor/d' drivers/misc/mediatek/sensors-1.0/Kconfig || true
-          sed -i '/ufs/d' drivers/scsi/Kconfig || true
-          
-          find . -name "Kconfig*" -exec sed -i '/oppo_healthinfo/d' {} \; || true
-          find . -name "Kconfig*" -exec sed -i '/os_track/d' {} \; || true
-          find . -name "Kconfig*" -exec sed -i '/oppo_virtual_sensor/d' {} \; || true
-          
-          echo "All ghost Kconfig paths cleaned successfully!"
+          echo "============================================"
+          echo "OPPO MT6771 KERNEL"
+          echo "============================================"
+
+          echo ""
+          echo "Branch:"
+          git branch --show-current || true
+
+          echo ""
+          echo "Commit:"
+          git log -1 --oneline
+
+          echo ""
+          echo "Kernel version:"
+          make kernelversion || true
 
       # ============================================================
-      # CREATE OUTPUT DIRECTORY
+      # 4. SHOW DEFCONFIGS
+      # ============================================================
+      - name: Detect Defconfig
+        shell: bash
+        run: |
+          set -u
+
+          echo "Available MT6771/OPPO configs:"
+          echo
+
+          find arch/arm64/configs \
+            -maxdepth 1 \
+            -type f \
+            -printf '%f\n' \
+            | grep -Ei 'mt6771|oppo6771' \
+            | sort || true
+
+          echo
+
+          if [ -f arch/arm64/configs/oppo6771_defconfig ]; then
+              echo "DEFCONFIG=oppo6771_defconfig" >> "$GITHUB_ENV"
+              echo "Selected: oppo6771_defconfig"
+
+          elif [ -f arch/arm64/configs/oppo6771_debug_defconfig ]; then
+              echo "DEFCONFIG=oppo6771_debug_defconfig" >> "$GITHUB_ENV"
+              echo "Selected: oppo6771_debug_defconfig"
+
+          elif [ -f arch/arm64/configs/mt6771_defconfig ]; then
+              echo "DEFCONFIG=mt6771_defconfig" >> "$GITHUB_ENV"
+              echo "Selected: mt6771_defconfig"
+
+          else
+              echo "::error::No suitable MT6771 defconfig found."
+              exit 1
+          fi
+
+      # ============================================================
+      # 5. AUTOMATIC KCONFIG REPAIR
+      # ============================================================
+      - name: Automatic Kconfig Repair
+        shell: bash
+        run: |
+          set -u
+
+          echo "============================================"
+          echo "AUTOMATIC KCONFIG REPAIR"
+          echo "============================================"
+
+          mkdir -p repair-log
+
+          echo "Scanning Kconfig files..."
+
+          find . \
+            -type f \
+            \( \
+              -name Kconfig \
+              -o -name 'Kconfig.*' \
+            \) \
+            -not -path './.git/*' \
+            -print > repair-log/kconfig-files.txt
+
+          echo ""
+          echo "Kconfig files found:"
+          wc -l repair-log/kconfig-files.txt
+
+          echo ""
+          echo "Checking source references..."
+
+          python3 <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          changed = []
+          missing = []
+
+          files = []
+
+          for p in Path(".").rglob("*"):
+              if not p.is_file():
+                  continue
+
+              if ".git" in p.parts:
+                  continue
+
+              if p.name == "Kconfig" or p.name.startswith("Kconfig."):
+                  files.append(p)
+
+          for kconfig in files:
+
+              try:
+                  text = kconfig.read_text(
+                      encoding="utf-8",
+                      errors="ignore"
+                  )
+              except Exception:
+                  continue
+
+              lines = text.splitlines(True)
+              new_lines = []
+              modified = False
+
+              for line in lines:
+
+                  match = re.match(
+                      r'^(\s*)source\s+(.+?)\s*$',
+                      line
+                  )
+
+                  if not match:
+                      new_lines.append(line)
+                      continue
+
+                  indent = match.group(1)
+                  target = match.group(2).strip()
+
+                  # Remove quotes if present
+                  target = target.strip('"').strip("'")
+
+                  # Ignore variable-based references.
+                  if "$(" in target or "${" in target:
+                      new_lines.append(line)
+                      continue
+
+                  target_path = (
+                      kconfig.parent / target
+                  ).resolve()
+
+                  if not target_path.exists():
+
+                      missing.append(
+                          f"{kconfig}:{target}"
+                      )
+
+                      # Comment only missing Kconfig references.
+                      new_lines.append(
+                          f"{indent}# AUTO-BYPASS-MISSING: {line}"
+                      )
+
+                      modified = True
+
+                  else:
+                      new_lines.append(line)
+
+              if modified:
+                  kconfig.write_text(
+                      "".join(new_lines),
+                      encoding="utf-8"
+                  )
+                  changed.append(str(kconfig))
+
+          Path(
+              "repair-log/missing-kconfig.txt"
+          ).write_text(
+              "\n".join(missing) + ("\n" if missing else "")
+          )
+
+          Path(
+              "repair-log/changed-kconfig.txt"
+          ).write_text(
+              "\n".join(changed) + ("\n" if changed else "")
+          )
+
+          print()
+          print("Missing Kconfig references:", len(missing))
+          print("Modified Kconfig files:", len(changed))
+
+          for x in missing:
+              print("BYPASS:", x)
+
+          PY
+
+          echo ""
+          echo "Repair finished."
+
+      # ============================================================
+      # 6. SHOW REPAIR REPORT
+      # ============================================================
+      - name: Show Repair Report
+        if: always()
+        run: |
+          echo "============================================"
+          echo "REPAIR REPORT"
+          echo "============================================"
+
+          echo ""
+          echo "--- Missing Kconfig references ---"
+          cat repair-log/missing-kconfig.txt 2>/dev/null || true
+
+          echo ""
+          echo "--- Changed Kconfig files ---"
+          cat repair-log/changed-kconfig.txt 2>/dev/null || true
+
+      # ============================================================
+      # 7. PREPARE OUTPUT
       # ============================================================
       - name: Prepare Build Directory
         run: |
@@ -75,65 +277,137 @@ jobs:
           mkdir -p out
 
       # ============================================================
-      # CONFIGURE KERNEL
+      # 8. CONFIGURE
       # ============================================================
       - name: Configure Kernel
+        shell: bash
         run: |
-          echo "======================================"
-          echo "CONFIGURING OPPO6771 KERNEL"
-          echo "======================================"
+          set -e
+
+          echo "============================================"
+          echo "CONFIGURING KERNEL"
+          echo "============================================"
+
+          echo "Using:"
+          echo "$DEFCONFIG"
 
           make O=out \
             ARCH=arm64 \
             CROSS_COMPILE=aarch64-linux-gnu- \
-            oppo6771_defconfig
+            "$DEFCONFIG"
 
       # ============================================================
-      # BUILD KERNEL
+      # 9. SAVE CONFIG
+      # ============================================================
+      - name: Save Kernel Config
+        run: |
+          test -f out/.config
+
+          echo "Configuration successful."
+
+          cp out/.config \
+            repair-log/final.config
+
+          echo ""
+          echo "Config lines:"
+          wc -l out/.config
+
+      # ============================================================
+      # 10. BUILD
       # ============================================================
       - name: Build Kernel
+        shell: bash
         run: |
-          echo "======================================"
-          echo "BUILDING KERNEL"
-          echo "======================================"
+          set -o pipefail
 
-          make -j$(nproc) \
+          echo "============================================"
+          echo "BUILDING KERNEL"
+          echo "============================================"
+
+          make -j"$(nproc)" \
             O=out \
             ARCH=arm64 \
-            CROSS_COMPILE=aarch64-linux-gnu-
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            2>&1 | tee repair-log/build.log
 
       # ============================================================
-      # PREPARE ARTIFACT
+      # 11. SEARCH OUTPUT
       # ============================================================
-      - name: Prepare Kernel Artifact
+      - name: Find Kernel Outputs
+        if: always()
         run: |
-          echo "======================================"
-          echo "PREPARING ARTIFACT"
-          echo "======================================"
+          echo "============================================"
+          echo "SEARCHING KERNEL OUTPUT"
+          echo "============================================"
 
-          rm -rf kernel-output
           mkdir -p kernel-output
 
           if [ -f out/arch/arm64/boot/Image ]; then
-            cp out/arch/arm64/boot/Image kernel-output/Image
+              cp out/arch/arm64/boot/Image kernel-output/
+          fi
+
+          if [ -f out/arch/arm64/boot/Image.gz ]; then
+              cp out/arch/arm64/boot/Image.gz kernel-output/
           fi
 
           if [ -f out/arch/arm64/boot/Image.gz-dtb ]; then
-            cp out/arch/arm64/boot/Image.gz-dtb kernel-output/Image.gz-dtb
-          elif [ -f out/arch/arm64/boot/Image.gz ]; then
-            cp out/arch/arm64/boot/Image.gz kernel-output/Image.gz
+              cp out/arch/arm64/boot/Image.gz-dtb kernel-output/
           fi
 
-          find out/arch/arm64/boot -type f -name "*.dtb" -exec cp {} kernel-output/ \; 2>/dev/null || true
+          if [ -f out/arch/arm64/boot/zImage ]; then
+              cp out/arch/arm64/boot/zImage kernel-output/
+          fi
 
-          ls -lah kernel-output
+          find out/arch/arm64/boot \
+            -type f \
+            -name "*.dtb" \
+            -exec cp {} kernel-output/ \; \
+            2>/dev/null || true
+
+          echo ""
+          echo "Found:"
+          find kernel-output \
+            -maxdepth 1 \
+            -type f \
+            -printf '%f\n' \
+            | sort || true
 
       # ============================================================
-      # UPLOAD ARTIFACT
+      # 12. BUILD REPORT
       # ============================================================
-      - name: Upload Kernel
+      - name: Build Report
+        if: always()
+        run: |
+          echo "============================================"
+          echo "BUILD REPORT"
+          echo "============================================"
+
+          echo ""
+          echo "Kernel:"
+          make kernelversion 2>/dev/null || true
+
+          echo ""
+          echo "Git:"
+          git log -1 --oneline
+
+          echo ""
+          echo "Output:"
+          ls -lah kernel-output 2>/dev/null || true
+
+          echo ""
+          echo "Repair log:"
+          ls -lah repair-log 2>/dev/null || true
+
+      # ============================================================
+      # 13. UPLOAD EVERYTHING USEFUL
+      # ============================================================
+      - name: Upload Kernel And Logs
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: oppo-mt6771-kernel
-          path: kernel-output/
-          if-no-files-found: error
+          name: oppo-mt6771-build
+          path: |
+            kernel-output/
+            repair-log/
+            out/.config
+          if-no-files-found: warn
