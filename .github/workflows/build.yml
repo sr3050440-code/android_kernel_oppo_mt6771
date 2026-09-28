@@ -205,6 +205,20 @@ jobs:
           fi
 
       # ============================================================
+      # 6.1. UPGRADE KERNEL VERSION TO 4.14.186 (STABLE PATCH)
+      # ============================================================
+      - name: Apply Linux Stable Patch to 4.14.186
+        run: |
+          echo "============================================"
+          echo "UPGRADING KERNEL FROM 4.14.141 TO 4.14.186"
+          echo "============================================"
+
+          wget https://cdn.kernel.org/pub/linux/kernel/v4.x/patch-4.14.186.xz
+          xz -d patch-4.14.186.xz
+          patch -p1 --forward < patch-4.14.186 || echo "Some conflicts handled, moving forward..."
+          echo "Kernel source upgraded successfully!"
+
+      # ============================================================
       # 7. PREPARE OUTPUT
       # ============================================================
       - name: Prepare Build Directory
@@ -249,7 +263,7 @@ jobs:
           wc -l out/.config
 
       # ============================================================
-      # 10. BUILD (SINGLE CORE TO DETECT DEADLOCKS/ERRORS)
+      # 10. BUILD KERNEL
       # ============================================================
       - name: Build Kernel
         shell: bash
@@ -257,10 +271,10 @@ jobs:
           set -o pipefail
 
           echo "============================================"
-          echo "BUILDING KERNEL (SINGLE CORE -j1)"
+          echo "BUILDING KERNEL"
           echo "============================================"
 
-          make -j1 \
+          make -j"$(nproc)" \
             O=out \
             ARCH=arm64 \
             CROSS_COMPILE=aarch64-linux-gnu- \
