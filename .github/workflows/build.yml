@@ -219,7 +219,27 @@ jobs:
           echo "Kernel source upgraded successfully!"
 
       # ============================================================
-      # 7. PREPARE OUTPUT
+      # 7. FIX CPUTYPE.H REDEFINITION ERROR
+      # ============================================================
+      - name: Fix cpuType.h Redefinition Conflict
+        run: |
+          echo "============================================"
+          echo "FIXING CPUTYPE.H CONFLICTS"
+          echo "============================================"
+
+          CPUTYPE_H=$(find . -path "*/include/asm/cputype.h" -o -path "*/arch/arm64/include/asm/cputype.h" | head -n 1)
+
+          if [ -f "$CPUTYPE_H" ]; then
+            echo "Found cputype.h at $CPUTYPE_H, fixing duplicate definitions..."
+            sed -i 's/struct midr_range {/struct midr_range_disabled {/g' "$CPUTYPE_H"
+            sed -i 's/static inline bool is_midr_in_range/static inline bool is_midr_in_range_disabled/g' "$CPUTYPE_H"
+            echo "cputype.h fixed successfully!"
+          else
+            echo "cputype.h not found, skipping..."
+          fi
+
+      # ============================================================
+      # 8. PREPARE OUTPUT
       # ============================================================
       - name: Prepare Build Directory
         run: |
@@ -227,7 +247,7 @@ jobs:
           mkdir -p out
 
       # ============================================================
-      # 8. CONFIGURE
+      # 9. CONFIGURE
       # ============================================================
       - name: Configure Kernel
         shell: bash
@@ -247,7 +267,7 @@ jobs:
             "$DEFCONFIG"
 
       # ============================================================
-      # 9. SAVE CONFIG
+      # 10. SAVE CONFIG
       # ============================================================
       - name: Save Kernel Config
         run: |
@@ -263,7 +283,7 @@ jobs:
           wc -l out/.config
 
       # ============================================================
-      # 10. BUILD KERNEL
+      # 11. BUILD KERNEL
       # ============================================================
       - name: Build Kernel
         shell: bash
@@ -281,7 +301,7 @@ jobs:
             2>&1 | tee repair-log/build.log
 
       # ============================================================
-      # 11. SEARCH OUTPUT
+      # 12. SEARCH OUTPUT
       # ============================================================
       - name: Find Kernel Outputs
         if: always()
@@ -323,7 +343,7 @@ jobs:
             | sort || true
 
       # ============================================================
-      # 12. BUILD REPORT
+      # 13. BUILD REPORT
       # ============================================================
       - name: Build Report
         if: always()
@@ -349,7 +369,7 @@ jobs:
           ls -lah repair-log 2>/dev/null || true
 
       # ============================================================
-      # 13. UPLOAD EVERYTHING USEFUL
+      # 14. UPLOAD EVERYTHING USEFUL
       # ============================================================
       - name: Upload Kernel And Logs
         if: always()
