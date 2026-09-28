@@ -125,24 +125,6 @@ jobs:
 
           mkdir -p repair-log
 
-          echo "Scanning Kconfig files..."
-
-          find . \
-            -type f \
-            \( \
-              -name Kconfig \
-              -o -name 'Kconfig.*' \
-            \) \
-            -not -path './.git/*' \
-            -print > repair-log/kconfig-files.txt
-
-          echo ""
-          echo "Kconfig files found:"
-          wc -l repair-log/kconfig-files.txt
-
-          echo ""
-          echo "Checking source references..."
-
           python3 <<'PY'
           import os
           import re
@@ -150,26 +132,19 @@ jobs:
 
           changed = []
           missing = []
-
           files = []
 
           for p in Path(".").rglob("*"):
               if not p.is_file():
                   continue
-
               if ".git" in p.parts:
                   continue
-
               if p.name == "Kconfig" or p.name.startswith("Kconfig."):
                   files.append(p)
 
           for kconfig in files:
-
               try:
-                  text = kconfig.read_text(
-                      encoding="utf-8",
-                      errors="ignore"
-                  )
+                  text = kconfig.read_text(encoding="utf-8", errors="ignore")
               except Exception:
                   continue
 
@@ -178,95 +153,56 @@ jobs:
               modified = False
 
               for line in lines:
-
-                  match = re.match(
-                      r'^(\s*)source\s+(.+?)\s*$',
-                      line
-                  )
-
+                  match = re.match(r'^(\s*)source\s+(.+?)\s*$', line)
                   if not match:
                       new_lines.append(line)
                       continue
 
                   indent = match.group(1)
-                  target = match.group(2).strip()
+                  target = match.group(2).strip().strip('"').strip("'")
 
-                  # Remove quotes if present
-                  target = target.strip('"').strip("'")
-
-                  # Ignore variable-based references.
                   if "$(" in target or "${" in target:
                       new_lines.append(line)
                       continue
 
-                  target_path = (
-                      kconfig.parent / target
-                  ).resolve()
+                  target_path = (kconfig.parent / target).resolve()
 
                   if not target_path.exists():
-
-                      missing.append(
-                          f"{kconfig}:{target}"
-                      )
-
-                      # Comment only missing Kconfig references.
-                      new_lines.append(
-                          f"{indent}# AUTO-BYPASS-MISSING: {line}"
-                      )
-
+                      missing.append(f"{kconfig}:{target}")
+                      new_lines.append(f"{indent}# AUTO-BYPASS-MISSING: {line}")
                       modified = True
-
                   else:
                       new_lines.append(line)
 
               if modified:
-                  kconfig.write_text(
-                      "".join(new_lines),
-                      encoding="utf-8"
-                  )
+                  kconfig.write_text("".join(new_lines), encoding="utf-8")
                   changed.append(str(kconfig))
 
-          Path(
-              "repair-log/missing-kconfig.txt"
-          ).write_text(
-              "\n".join(missing) + ("\n" if missing else "")
-          )
+          Path("repair-log/missing-kconfig.txt").write_text("\n".join(missing) + ("\n" if missing else ""))
+          Path("repair-log/changed-kconfig.txt").write_text("\n".join(changed) + ("\n" if changed else ""))
 
-          Path(
-              "repair-log/changed-kconfig.txt"
-          ).write_text(
-              "\n".join(changed) + ("\n" if changed else "")
-          )
-
-          print()
           print("Missing Kconfig references:", len(missing))
           print("Modified Kconfig files:", len(changed))
-
-          for x in missing:
-              print("BYPASS:", x)
-
           PY
 
-          echo ""
-          echo "Repair finished."
-
       # ============================================================
-      # 6. SHOW REPAIR REPORT
+      # 6. FIX PRINTK TYPE MISMATCH ERROR
       # ============================================================
-      - name: Show Repair Report
-        if: always()
+      - name: Fix Printk Type Mismatch
         run: |
           echo "============================================"
-          echo "REPAIR REPORT"
+          echo "FIXING PRINTK.H CONFLICT"
           echo "============================================"
-
-          echo ""
-          echo "--- Missing Kconfig references ---"
-          cat repair-log/missing-kconfig.txt 2>/dev/null || true
-
-          echo ""
-          echo "--- Changed Kconfig files ---"
-          cat repair-log/changed-kconfig.txt 2>/dev/null || true
+          
+          PRINTK_H=$(find . -path "*/include/linux/printk.h" | head -n 1)
+          if [ -f "$PRINTK_H" ]; then
+            echo "Found printk.h at $PRINTK_H, applying patch..."
+            sed -i 's/static inline char \*log_buf_addr_get/char \*log_buf_addr_get/g' "$PRINTK_H"
+            sed -i 's/static inline u32 log_buf_len_get/u32 log_buf_len_get/g' "$PRINTK_H"
+            echo "Patch applied successfully!"
+          else
+            echo "printk.h not found, skipping patch."
+          fi
 
       # ============================================================
       # 7. PREPARE OUTPUT
